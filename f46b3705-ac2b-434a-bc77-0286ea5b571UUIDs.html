@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Vibe Injector • Playlists Only</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style>
+  :root{ --pri:#5B8DEF; --ink:#0F172A; }
+  body{font-family:ui-sans-serif,Inter,system-ui,Segoe UI,Roboto,Arial}
+  .card{background:#fff;border-radius:1rem;box-shadow:0 8px 24px -16px rgba(15,23,42,.18),0 2px 8px -4px rgba(15,23,42,.08)}
+  .btn{border-radius:.9rem;padding:.65rem 1rem;font-weight:600}
+  .btn-pri{background:var(--pri);color:#fff}
+  .btn-ghost{background:#EEF2FF;color:#1E293B}
+  .slider{appearance:none;height:6px;border-radius:9999px;background:#E5E7EB}
+  .slider::-webkit-slider-thumb{appearance:none;height:18px;width:18px;border-radius:50%;background:var(--pri)}
+  .label{font-size:.75rem;color:#64748B}
+  .value{font-size:.75rem;font-family:ui-monospace,Menlo,monospace;color:#334155}
+  .badge{font-size:.68rem;padding:.2rem .5rem;border-radius:.5rem;background:#EEF2FF;color:#1E293B}
+</style>
+</head>
+<body class="bg-gradient-to-b from-slate-50 to-slate-100 min-h-screen p-5 text-slate-900">
+
+<div class="max-w-3xl mx-auto space-y-6">
+  <header class="space-y-2">
+    <div class="flex items-center gap-3">
+      <h1 class="text-3xl font-bold tracking-tight">Vibe Injector</h1>
+      <span id="micState" class="badge">Mic: off</span>
+      <span id="snapState" class="badge">Snaps: idle</span>
+      <span id="wakeState" class="badge">Awake: off</span>
+      <button id="enableMic" class="ml-auto btn btn-pri text-sm">Enable Snap Control</button>
+    </div>
+    <p class="text-slate-600 text-sm">Finger snap toggles start/stop • Screen stays awake during session.</p>
+  </header>
+
+  <section class="card p-5 space-y-4">
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="card p-4">
+        <div class="space-y-3">
+          <div>
+            <label class="label block">Playlist / Mode</label>
+            <select id="presetSel" class="w-full mt-1 rounded-xl border px-3 py-2"></select>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="label w-28">Pulse (Hz)</span>
+            <input id="pulseHz" type="range" min="0.5" max="40" step="0.1" class="slider w-full"/>
+            <span id="pulseHzV" class="value w-12 text-right">10.0</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="label w-28">Carrier (Hz)</span>
+            <input id="carrierHz" type="range" min="120" max="500" step="1" value="200" class="slider w-full"/>
+            <span id="carrierHzV" class="value w-12 text-right">200</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="label w-28">Pulse Depth</span>
+            <input id="depth" type="range" min="0" max="1" step="0.01" value="0.85" class="slider w-full"/>
+            <span id="depthV" class="value w-12 text-right">0.85</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="label w-28">Wave Volume</span>
+            <input id="waveGain" type="range" min="0" max="1" step="0.01" value="0.35" class="slider w-full"/>
+            <span id="waveGainV" class="value w-12 text-right">0.35</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <button id="startWave" class="btn btn-ghost">Start</button>
+            <button id="stopWave" class="btn btn-ghost">Stop</button>
+            <span id="status" class="ml-auto label">Idle</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-4">
+        <div class="space-y-3">
+          <div>
+            <label class="label block">Session Length</label>
+            <select id="length" class="w-full mt-1 rounded-xl border px-3 py-2">
+              <option value="15">15 min</option>
+              <option value="30">30 min</option>
+              <option value="60">60 min</option>
+              <option value="0" selected>Continuous</option>
+            </select>
+          </div>
+          <div class="text-sm flex items-center gap-3">
+            <span class="label">Timer</span>
+            <span id="timer" class="value">00:00</span>
+          </div>
+          <p class="text-[11px] text-slate-500">
+            Isochronic pulses for speakers or headphones. No external audio—pure tone shaping.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card p-5">
+    <div class="flex items-center">
+      <h2 class="text-lg font-semibold">Recent Sessions</h2>
+      <button id="clearHist" class="ml-auto btn btn-ghost text-sm">Clear</button>
+    </div>
+    <div id="hist" class="mt-3 text-sm text-slate-700 space-y-1"></div>
+  </section>
+</div>
+
+<script>
+const PRESETS = {
+  playlists: [
+    { id:'mantra',   label:'Mantra / Meditation',    pulseHz: 2.0,  carrierHz:200,   waveGain:0.40 },
+    { id:'creative', label:'Creativity / Dream',     pulseHz: 6.0,  carrierHz:210,   waveGain:0.35 },
+    { id:'calm',     label:'Calm Focus / Reading',   pulseHz:10.0,  carrierHz:220,   waveGain:0.30 },
+    { id:'sensual',  label:'Sensual / Intimate',     pulseHz: 9.0,  carrierHz:220,   waveGain:0.35 },
+    { id:'flow',     label:'Flow / Immersed Work',   pulseHz:12.0,  carrierHz:230,   waveGain:0.30 },
+    { id:'dance',    label:'Dance / Groove',         pulseHz:14.0,  carrierHz:240,   waveGain:0.25 },
+    { id:'party',    label:'Party / Energy',         pulseHz:18.0,  carrierHz:250,   waveGain:0.22 },
+    { id:'study',    label:'Study / Deep Work',      pulseHz:15.0,  carrierHz:220,   waveGain:0.30 },
+    { id:'learn',    label:'Learning / Memory',      pulseHz:40.0,  carrierHz:260,   waveGain:0.25 },
+    { id:'om',       label:'Om (ॐ) Cosmic Tone',     pulseHz: 7.83, carrierHz:136.1, waveGain:0.35 },
+    { id:'gayatri',  label:'Gayatri Mantra Mode',    pulseHz: 7.0,  carrierHz:110.0, waveGain:0.30 },
+    { id:'social',   label:'Social / Drunk Mode',    pulseHz:11.0,  carrierHz:200.0, waveGain:0.40 },
+    { id:'cannabis', label:'Recreational / Cannabis',pulseHz: 8.0,  carrierHz:432.0, waveGain:0.38 },
+    { id:'healing',  label:'Healing',                pulseHz: 5.5,  carrierHz:528.0, waveGain:0.36 },
+    { id:'rejuv',    label:'Rejuvenation',           pulseHz: 9.0,  carrierHz:285.0, waveGain:0.34 },
+    { id:"deep_sleep",   label:"Deep Sleep",                pulseHz:1.5,  carrierHz:180, waveGain:0.38 },
+    { id:"power_nap",    label:"Power Nap",                 pulseHz:4.0,  carrierHz:200, waveGain:0.35 },
+    { id:"theta_trance", label:"Theta Meditation (Trance)", pulseHz:4.5,  carrierHz:210, waveGain:0.35 },
+    { id:"anxiety_off",  label:"Anxiety Relief",            pulseHz:6.5,  carrierHz:210, waveGain:0.33 },
+    { id:"laser_focus",  label:"Laser Focus",               pulseHz:16.0, carrierHz:230, waveGain:0.30 },
+    { id:"pomodoro",     label:"Pomodoro Work",             pulseHz:13.0, carrierHz:230, waveGain:0.30 },
+    { id:"wake_up",      label:"Wake Up",                   pulseHz:20.0, carrierHz:240, waveGain:0.28 },
+    { id:"motivate",     label:"Motivation Boost",          pulseHz:22.0, carrierHz:250, waveGain:0.26 },
+    { id:"problem_solve",label:"Problem Solving",           pulseHz:32.0, carrierHz:260, waveGain:0.24 },
+
+    { id:"root_396",     label:"Root • 396",                pulseHz:7.0,  carrierHz:396, waveGain:0.34 },
+    { id:"sacral_417",   label:"Sacral • 417",              pulseHz:7.0,  carrierHz:417, waveGain:0.34 },
+    { id:"heart_639",    label:"Heart • 639",               pulseHz:7.0,  carrierHz:639, waveGain:0.33 },
+    { id:"throat_741",   label:"Throat • 741",              pulseHz:7.0,  carrierHz:741, waveGain:0.33 },
+    { id:"third_eye_852",label:"Third Eye • 852",           pulseHz:7.0,  carrierHz:852, waveGain:0.33 },
+    { id:"crown_963",    label:"Crown • 963",               pulseHz:7.0,  carrierHz:963, waveGain:0.32 }
+
+  ],
+  isochronic: { depth:0.85, attackMs:10, releaseMs:12 }
+};
+
+const $=s=>document.querySelector(s);
+const presetSel=$('#presetSel'), pulseHz=$('#pulseHz'), pulseHzV=$('#pulseHzV');
+const carrierHz=$('#carrierHz'), carrierHzV=$('#carrierHzV');
+const depth=$('#depth'), depthV=$('#depthV');
+const waveGain=$('#waveGain'), waveGainV=$('#waveGainV');
+const startWaveBtn=$('#startWave'), stopWaveBtn=$('#stopWave'), statusEl=$('#status');
+const lenSel=$('#length'), timerEl=$('#timer');
+const histEl=$('#hist'), clearHist=$('#clearHist');
+const enableMicBtn=$('#enableMic'), micState=$('#micState'), snapState=$('#snapState'), wakeState=$('#wakeState');
+
+let ctx = null, bus = null, gainOut = null,
+    carrierOsc = null, lfoOsc = null, lfoGain = null, env = null,
+    running = false, timerId = null, startTs = 0, sessionLenMin = 0;
+
+/* UI init */
+for(const p of PRESETS.playlists){
+  const opt=document.createElement('option');
+  opt.value=p.id; opt.textContent=`${p.label} (${p.pulseHz} Hz)`;
+  presetSel.appendChild(opt);
+}
+function applyPreset(id){
+  const p = PRESETS.playlists.find(x=>x.id===id) || PRESETS.playlists[0];
+  pulseHz.value   = p.pulseHz;  pulseHzV.textContent = Number(p.pulseHz).toFixed(1);
+  carrierHz.value = p.carrierHz; carrierHzV.textContent = String(p.carrierHz|0);
+  waveGain.value  = p.waveGain; waveGainV.textContent = Number(p.waveGain).toFixed(2);
+  depth.value     = PRESETS.isochronic.depth; depthV.textContent = Number(depth.value).toFixed(2);
+  if (ctx && running) rebuildIso();
+}
+presetSel.addEventListener('change', ()=>applyPreset(presetSel.value));
+applyPreset(PRESETS.playlists[0].id);
+
+[pulseHz, carrierHz, depth, waveGain].forEach(el=>{
+  el.addEventListener('input', ()=>{
+    if(el===pulseHz)   pulseHzV.textContent=Number(el.value).toFixed(1);
+    if(el===carrierHz) carrierHzV.textContent=String(el.value|0);
+    if(el===depth)     depthV.textContent=Number(el.value).toFixed(2);
+    if(el===waveGain)  waveGainV.textContent=Number(el.value).toFixed(2);
+    if(ctx && running){
+      if(el!==waveGain) rebuildIso();
+      else if(gainOut)  gainOut.gain.value=+waveGain.value;
+    }
+  });
+});
+
+/* Audio core */
+function ensureCtx(){
+  if(ctx) return;
+  ctx = new (window.AudioContext||window.webkitAudioContext)();
+  bus = ctx.createGain();
+  gainOut = ctx.createGain(); gainOut.gain.value=+waveGain.value;
+  const comp=ctx.createDynamicsCompressor();
+  comp.threshold.value=-12; comp.knee.value=18; comp.ratio.value=3; comp.attack.value=0.005; comp.release.value=0.06;
+  bus.connect(comp).connect(gainOut).connect(ctx.destination);
+}
+
+function rebuildIso(){
+  if(!ctx) return;
+  stopIso(false);
+
+  carrierOsc=ctx.createOscillator(); carrierOsc.type='sine'; carrierOsc.frequency.value=+carrierHz.value;
+
+  lfoOsc=ctx.createOscillator(); lfoGain=ctx.createGain();
+  const d=+depth.value; lfoGain.gain.value=0.5*d;
+  const offset=ctx.createConstantSource(); offset.offset.value=0.5*(1-d);
+  env=ctx.createGain(); env.gain.value=0;
+
+  const a=PRESETS.isochronic.attackMs/1000;
+  const sum=ctx.createGain();
+  lfoOsc.connect(lfoGain); lfoGain.connect(sum); offset.connect(sum); sum.connect(env.gain);
+  carrierOsc.connect(env).connect(bus);
+
+  const now=ctx.currentTime;
+  lfoOsc.frequency.setValueAtTime(+pulseHz.value, now);
+  lfoOsc.start(now); offset.start(now); carrierOsc.start(now);
+  env.gain.setTargetAtTime(env.gain.value, now, 0.001);
+  env.gain.setTargetAtTime(1.0, now, a);
+
+  gainOut.gain.setValueAtTime(+waveGain.value, now);
+  running=true;
+  statusEl.textContent=`Pulse ${(+pulseHz.value).toFixed(1)} Hz • Carrier ${(+carrierHz.value|0)} Hz`;
+}
+
+function stopIso(hard=true){
+  if(!ctx || !running) return;
+  const now=ctx.currentTime, r=PRESETS.isochronic.releaseMs/1000;
+  try{
+    if(hard){ carrierOsc.stop(); lfoOsc.stop(); }
+    else{
+      env.gain.setTargetAtTime(env.gain.value, now, 0.001);
+      env.gain.setTargetAtTime(0, now, r);
+      setTimeout(()=>{ try{carrierOsc.stop(); lfoOsc.stop();}catch{} }, PRESETS.isochronic.releaseMs+40);
+    }
+  }catch{}
+  try{carrierOsc.disconnect(); lfoOsc.disconnect(); lfoGain.disconnect(); env.disconnect();}catch{}
+  running=false; statusEl.textContent='Idle';
+}
+
+/* Notification tones (start: up, stop: down) */
+function playNotify(kind){
+  ensureCtx();
+  if(ctx.state==='suspended'){ ctx.resume().catch(()=>{}); }
+  const now=ctx.currentTime;
+
+  function beep(freq, tOffset, dur=0.12, gain=0.12){
+    const o=ctx.createOscillator();
+    const g=ctx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(freq, now+tOffset);
+    g.gain.setValueAtTime(0, now+tOffset);
+    g.gain.linearRampToValueAtTime(gain, now+tOffset+0.02);
+    g.gain.linearRampToValueAtTime(0,    now+tOffset+dur);
+    o.connect(g).connect(ctx.destination);
+    o.start(now+tOffset); o.stop(now+tOffset+dur+0.02);
+  }
+
+  if(kind==='start'){
+    beep(880,   0.00); // A5
+    beep(1320,  0.14); // E6 (up)
+  }else{
+    beep(660,   0.00); // E5
+    beep(440,   0.14); // A4 (down)
+  }
+}
+
+/* Timer + session control */
+function tick(){
+  if(!startTs){ timerEl.textContent='00:00'; return; }
+  const elapsed=Math.floor((Date.now()-startTs)/1000);
+  const mm=String(Math.floor(elapsed/60)).padStart(2,'0');
+  const ss=String(elapsed%60).padStart(2,'0');
+  timerEl.textContent=`${mm}:${ss}`;
+  if(sessionLenMin>0 && elapsed>=sessionLenMin*60){
+    stopSession();
+    try{ alert('Session complete.'); }catch{}
+  }
+}
+
+function startSession(){
+  ensureCtx(); if(ctx.state==='suspended'){ ctx.resume().catch(()=>{}); }
+  rebuildIso();
+  sessionLenMin = parseInt(lenSel.value,10) || 0;
+  startTs=Date.now();
+  if(timerId) clearInterval(timerId);
+  timerId=setInterval(tick,1000); tick();
+  pushHist();
+  requestWake();
+  playNotify('start');
+}
+function stopSession(){
+  playNotify('stop');
+  stopIso(false);
+  if(timerId){ clearInterval(timerId); timerId=null; }
+  startTs=0; tick();
+  releaseWake();
+}
+
+startWaveBtn.addEventListener('click', startSession);
+stopWaveBtn.addEventListener('click', stopSession);
+
+/* History */
+const HIST_KEY='vibe_hist_pure_v1';
+function renderHist(){
+  const rows=(JSON.parse(localStorage.getItem(HIST_KEY)||'[]')||[]).slice(-6).reverse();
+  histEl.innerHTML = rows.length ? rows.map(r=>`<div class="flex items-center justify-between">
+    <span class="text-slate-600">${new Date(r.ts).toLocaleString()}</span>
+    <span class="value">${r.label} • ${r.pulse}Hz</span>
+  </div>`).join('') : `<div class="text-slate-500">No sessions yet.</div>`;
+}
+function pushHist(){
+  const id=presetSel.value; const p=PRESETS.playlists.find(x=>x.id===id)||{label:id};
+  const rows=JSON.parse(localStorage.getItem(HIST_KEY)||'[]')||[];
+  rows.push({ts:Date.now(),label:p.label,pulse:+pulseHz.value});
+  localStorage.setItem(HIST_KEY, JSON.stringify(rows)); renderHist();
+}
+clearHist.addEventListener('click', ()=>{ localStorage.removeItem(HIST_KEY); renderHist(); });
+renderHist();
+
+/* Finger snap recognition: single snap toggles */
+const snapStateEl = snapState;
+let micCtx=null, micStream=null, micSource=null, hp=null, bp=null, micAnalyser=null, micBuf=null, micRAF=null;
+let envLevel=0, noiseFloor=0.01, lastSnapAt=0;
+const MIN_GAP_MS=260;
+
+function toggleSession(){ running ? stopSession() : startSession(); }
+
+enableMicBtn.addEventListener('click', async ()=>{
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
+    micCtx = new (window.AudioContext||window.webkitAudioContext)();
+    micSource = micCtx.createMediaStreamSource(micStream);
+    hp = micCtx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1200;
+    bp = micCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=3000; bp.Q.value=1.2;
+    micAnalyser = micCtx.createAnalyser(); micAnalyser.fftSize=1024; micAnalyser.smoothingTimeConstant=0.02;
+    micSource.connect(hp).connect(bp).connect(micAnalyser);
+    micBuf = new Float32Array(micAnalyser.fftSize);
+    micState.textContent='Mic: on';
+    enableMicBtn.disabled=true;
+    listenLoop();
+  }catch(e){
+    micState.textContent='Mic: denied';
+  }
+});
+
+function listenLoop(){
+  micAnalyser.getFloatTimeDomainData(micBuf);
+  let sum=0; for(let i=0;i<micBuf.length;i++){ const v=micBuf[i]; sum+=v*v; }
+  const rms=Math.sqrt(sum/micBuf.length);
+  envLevel = 0.9*envLevel + 0.1*rms;
+  const baseline = Math.max(0.008, 0.98*noiseFloor + 0.02*envLevel);
+  noiseFloor = baseline;
+  const now=performance.now();
+  const threshold=Math.max(0.08, baseline*3.5);
+  const hit = rms > threshold && (now - lastSnapAt) > MIN_GAP_MS;
+
+  if(hit){
+    lastSnapAt = now;
+    snapStateEl.textContent='Snaps: toggle';
+    toggleSession();
+  }else if(!running){
+    snapStateEl.textContent='Snaps: listening';
+  }
+  micRAF = requestAnimationFrame(listenLoop);
+}
+
+/* Keep Awake */
+let wakeLock=null;
+async function requestWake(){
+  try{
+    if('wakeLock' in navigator){
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeState.textContent='Awake: on';
+      wakeLock.addEventListener('release', ()=>{ wakeState.textContent='Awake: off'; if(running) requestWake().catch(()=>{}); });
+    }
+  }catch{}
+}
+async function releaseWake(){
+  try{ if(wakeLock){ await wakeLock.release(); wakeLock=null; wakeState.textContent='Awake: off'; } }catch{}
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible' && running) requestWake().catch(()=>{});
+});
+</script>
+</body>
+</html>
