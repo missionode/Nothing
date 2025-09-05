@@ -125,9 +125,7 @@
               <span id="riskBadge" class="badge">Risk: low</span>
               <span id="budgetBadge" class="badge">Stim budget: OK</span>
             </div>
-            <ul id="safetyNotes" class="list-disc pl-5 mt-2 text-[12px] text-slate-600 space-y-1">
-              <!-- filled by JS -->
-            </ul>
+            <ul id="safetyNotes" class="list-disc pl-5 mt-2 text-[12px] text-slate-600 space-y-1"></ul>
           </div>
 
           <p class="hint">
@@ -195,12 +193,7 @@ const PRESETS = {
   isochronic: { depth:0.85, attackMs:10, releaseMs:12 }
 };
 
-/* Safety policy (heuristic):
-   - computeSafety(pulseHz, cat) => {risk, maxMinutes, minBreakMin, maxDepth, maxWaveGain, notes[]}
-   - "active" & pulses >=20Hz => high risk; cap 10–15 min; require 30–60 min break; lower depth/gain
-   - 14–19Hz => medium; cap 20–30 min; 20 min break; moderate depth/gain
-   - <=13Hz => low; usual caps (30–60 min) and normal depth/gain
-*/
+/* -------- Safety helpers -------- */
 function computeSafety(pulse, cat){
   const notes=[];
   let risk='low', maxMinutes=30, minBreakMin=10, maxDepth=0.8, maxWaveGain=0.35;
@@ -218,40 +211,24 @@ function computeSafety(pulse, cat){
     risk='low'; maxMinutes=45; minBreakMin=10; maxDepth=0.85; maxWaveGain=0.4;
     notes.push('Gentle band—still keep volumes moderate.');
   }
-
   if(cat==='active'){
-    // Nudge toward stricter rules for athletes/high-arousal use
     maxMinutes = Math.min(maxMinutes, pulse>=20 ? 15 : 25);
     minBreakMin = Math.max(minBreakMin, pulse>=20 ? 45 : 20);
     maxDepth = Math.min(maxDepth, 0.7);
     maxWaveGain = Math.min(maxWaveGain, 0.32);
     notes.push('Athletic/active mode: stricter guardrails applied.');
   }
-
-  // Never allow ridiculous values
   maxDepth = Math.max(0.5, Math.min(0.9, maxDepth));
   maxWaveGain = Math.max(0.18, Math.min(0.45, maxWaveGain));
 
   return {risk, maxMinutes, minBreakMin, maxDepth, maxWaveGain, notes};
 }
 
-/* Daily stim budget for >=14Hz (“activating”) sessions */
+/* Daily stim budget (>=14Hz) */
 const BUDGET_KEY='vibe_daily_stim_budget_v1';
-function readBudget(){
-  const today = new Date().toISOString().slice(0,10);
-  const raw = JSON.parse(localStorage.getItem(BUDGET_KEY)||'{}');
-  if(!raw[today]) raw[today] = { minutes:0 };
-  return {today, store:raw};
-}
-function addToBudget(mins){
-  const {today, store} = readBudget();
-  store[today].minutes += mins;
-  localStorage.setItem(BUDGET_KEY, JSON.stringify(store));
-}
-function getBudget(){
-  const {today, store} = readBudget();
-  return store[today].minutes|0;
-}
+function readBudget(){ const today = new Date().toISOString().slice(0,10); const raw = JSON.parse(localStorage.getItem(BUDGET_KEY)||'{}'); if(!raw[today]) raw[today]={minutes:0}; return {today,store:raw}; }
+function addToBudget(mins){ const {today,store}=readBudget(); store[today].minutes += mins; localStorage.setItem(BUDGET_KEY, JSON.stringify(store)); }
+function getBudget(){ const {today,store}=readBudget(); return store[today].minutes|0; }
 
 /* ----------------------- DOM refs ----------------------- */
 const $=s=>document.querySelector(s);
@@ -266,8 +243,11 @@ const histEl=$('#hist'), clearHist=$('#clearHist');
 const enableMicBtn=$('#enableMic'), micState=$('#micState'), snapState=$('#snapState'), wakeState=$('#wakeState');
 const riskBadge=$('#riskBadge'), budgetBadge=$('#budgetBadge'), safetyNotes=$('#safetyNotes');
 const panicCalm=$('#panicCalm'), autoNormalize=$('#autoNormalize');
-
 const chips=[...document.querySelectorAll('[data-chip]')];
+
+/* --------- FIX: declare currentSafety BEFORE any use --------- */
+let currentSafety = {risk:'low', maxMinutes:30, minBreakMin:10, maxDepth:0.8, maxWaveGain:0.35, notes:[]};
+/* ------------------------------------------------------------- */
 
 /* ------------- UI: build preset list + filters ------------ */
 function renderPresets(filter='all'){
@@ -290,31 +270,32 @@ chips.forEach(ch=>{
 renderPresets('all');
 
 /* ----------------- Audio engine state ----------------- */
-let ctx=null,bus=null,gainOut=null,carrierOsc=null,lfoOsc=null,lfoGain=null,env=null;
-let running=false,timerId=null,startTs=0,sessionLenMin=0;
-let currentSafety=null;
 
 function safetySummaryToUI(s){
   riskBadge.textContent = `Risk: ${s.risk}`;
   riskBadge.style.background = s.risk==='high' ? '#fee2e2' : (s.risk==='medium' ? '#ffedd5' : '#e2fbe8');
   riskBadge.style.color = '#111827';
   const daily = getBudget();
-  const budgetCap = 60; // daily cap for activating bands (>=14Hz) before we warn hard
+  const budgetCap = 60;
   const okay = daily < budgetCap;
   budgetBadge.textContent = `Stim budget: ${okay ? 'OK' : 'Exceeded'} (${daily}/${budgetCap} min)`;
   budgetBadge.style.background = okay ? '#e2fbe8' : '#fee2e2';
   safetyNotes.innerHTML = [
     `<li>Max session: <strong>${s.maxMinutes} min</strong> • Min break: <strong>${s.minBreakMin} min</strong></li>`,
-    `<li>Depth capped at <strong>${s.maxDepth.toFixed(2)}</strong> • Wave volume capped at <strong>${s.maxWaveGain.toFixed(2)}</strong></li>`,
+    `<li>Depth cap: <strong>${s.maxDepth.toFixed(2)}</strong> • Wave cap: <strong>${s.maxWaveGain.toFixed(2)}</strong></li>`,
     ...(s.notes||[]).map(n=>`<li>${n}</li>`),
-    `<li>Keep device volume moderate. Stop if dizziness, headache, or agitation appears.</li>`
+    `<li>Keep device volume moderate. Stop on discomfort.</li>`
   ].join('');
 }
+
+var ctx = null, bus = null, gainOut = null, carrierOsc = null, lfoOsc = null, env = null;
+var running = false, timerId = null, startTs = 0, sessionLenMin = 0;
 
 /* Apply preset and guardrails */
 function applyPreset(id){
   const p = PRESETS.playlists.find(x=>x.id===id) || PRESETS.playlists[0];
-  const s = computeSafety(p.pulseHz, p.cat); currentSafety = s;
+  const s = computeSafety(p.pulseHz, p.cat);
+  currentSafety = s;                           /* safe to assign now */
 
   pulseHz.value   = p.pulseHz;  pulseHzV.textContent = Number(p.pulseHz).toFixed(1);
   carrierHz.value = p.carrierHz; carrierHzV.textContent = String(p.carrierHz|0);
@@ -324,9 +305,8 @@ function applyPreset(id){
   waveGainV.textContent = Number(waveGain.value).toFixed(2);
 
   presetTags.innerHTML = `<span class="badge">Category: ${p.cat}</span>`;
-
   safetySummaryToUI(s);
-  // If already running, rebuild with new limits
+
   if (ctx && running) rebuildIso();
 }
 presetSel.addEventListener('change', ()=>applyPreset(presetSel.value));
@@ -334,10 +314,11 @@ presetSel.addEventListener('change', ()=>applyPreset(presetSel.value));
 /* Live mirrors with caps */
 [pulseHz, carrierHz, depth, waveGain].forEach(el=>{
   el.addEventListener('input', ()=>{
-    if(currentSafety){
-      if(el===depth && +depth.value > currentSafety.maxDepth) depth.value = currentSafety.maxDepth;
-      if(el===waveGain && +waveGain.value > currentSafety.maxWaveGain) waveGain.value = currentSafety.maxWaveGain;
-    }
+    // Guard against early calls before currentSafety exists
+    const s = currentSafety || {maxDepth:0.9,maxWaveGain:0.45};
+    if(el===depth && +depth.value > s.maxDepth) depth.value = s.maxDepth;
+    if(el===waveGain && +waveGain.value > s.maxWaveGain) waveGain.value = s.maxWaveGain;
+
     if(el===pulseHz)   pulseHzV.textContent=Number(el.value).toFixed(1);
     if(el===carrierHz) carrierHzV.textContent=String(el.value|0);
     if(el===depth)     depthV.textContent=Number(el.value).toFixed(2);
@@ -366,16 +347,15 @@ function rebuildIso(){
 
   carrierOsc=ctx.createOscillator(); carrierOsc.type='sine'; carrierOsc.frequency.value=+carrierHz.value;
 
-  // LFO shaper: (sin + 1)/2 -> depth + (1-depth)
-  lfoOsc=ctx.createOscillator(); lfoOsc.type='sine';
+  const lfoOsc=ctx.createOscillator(); lfoOsc.type='sine';
   const rectGain=ctx.createGain(); rectGain.gain.value=0.5;
   const plusHalf=ctx.createConstantSource(); plusHalf.offset.value=0.5;
 
   const depthGain=ctx.createGain(); depthGain.gain.value=+depth.value;
   const base=ctx.createConstantSource(); base.offset.value=1 - (+depth.value);
 
-  const rectSum=ctx.createGain();  // (sin*0.5 + 0.5)
-  const envSum=ctx.createGain();   // rect * depth + (1-depth)
+  const rectSum=ctx.createGain();
+  const envSum=ctx.createGain();
   env=ctx.createGain(); env.gain.value=0;
 
   lfoOsc.connect(rectGain).connect(rectSum);
@@ -390,7 +370,6 @@ function rebuildIso(){
   lfoOsc.frequency.setValueAtTime(+pulseHz.value, now);
   lfoOsc.start(now); plusHalf.start(now); base.start(now); carrierOsc.start(now);
 
-  // Fade in
   const a=PRESETS.isochronic.attackMs/1000;
   env.gain.setTargetAtTime(env.gain.value, now, 0.001);
   env.gain.setTargetAtTime(1.0, now, a);
@@ -404,18 +383,18 @@ function stopIso(hard=true){
   if(!ctx || !running) return;
   const now=ctx.currentTime, r=PRESETS.isochronic.releaseMs/1000;
   try{
-    if(hard){ carrierOsc.stop(); lfoOsc.stop(); }
+    if(hard){ carrierOsc.stop(); /* lfo + sources stop via GC after disconnect */ }
     else{
       env.gain.setTargetAtTime(env.gain.value, now, 0.001);
       env.gain.setTargetAtTime(0, now, r);
-      setTimeout(()=>{ try{carrierOsc.stop(); lfoOsc.stop();}catch{} }, PRESETS.isochronic.releaseMs+40);
+      setTimeout(()=>{ try{carrierOsc.stop();}catch{} }, PRESETS.isochronic.releaseMs+40);
     }
   }catch{}
-  try{carrierOsc.disconnect(); lfoOsc.disconnect(); env.disconnect();}catch{}
+  try{carrierOsc.disconnect(); env.disconnect();}catch{}
   running=false; statusEl.textContent='Idle';
 }
 
-/* Notification tones (start: up, stop: down) */
+/* Beeps */
 function playNotify(kind){
   ensureCtx();
   if(ctx.state==='suspended'){ ctx.resume().catch(()=>{}); }
@@ -433,7 +412,7 @@ function playNotify(kind){
   else{ beep(660,0.00); beep(440,0.14); }
 }
 
-/* --------------- Timer + session control --------------- */
+/* Timer + session */
 function tick(){
   if(!startTs){ timerEl.textContent='00:00'; return; }
   const elapsed=Math.floor((Date.now()-startTs)/1000);
@@ -448,22 +427,16 @@ function startSession(){
   const s = computeSafety(+pulseHz.value, p.cat);
   currentSafety=s; safetySummaryToUI(s);
 
-  // Enforce caps
   depth.value = Math.min(+depth.value, s.maxDepth); depthV.textContent=Number(depth.value).toFixed(2);
   waveGain.value = Math.min(+waveGain.value, s.maxWaveGain); waveGainV.textContent=Number(waveGain.value).toFixed(2);
 
-  // Budget rules for activating bands (>=14Hz)
   const activating = +pulseHz.value >= 14;
   const minutesReq = parseInt(lenSel.value,10) || 30;
   const used = getBudget();
   const dailyCap = 60;
   if(activating){
-    if(minutesReq > s.maxMinutes){
-      // clamp session length to safe max
-      lenSel.value = String(s.maxMinutes);
-    }
+    if(minutesReq > s.maxMinutes){ lenSel.value = String(s.maxMinutes); }
     if(used >= dailyCap){
-      // block start if budget exceeded
       alertSafe('Daily stimulating budget exceeded. Try a calm preset or come back tomorrow.');
       return;
     }
@@ -471,10 +444,7 @@ function startSession(){
 
   ensureCtx(); if(ctx.state==='suspended'){ ctx.resume().catch(()=>{}); }
   rebuildIso();
-
-  sessionLenMin = parseInt(lenSel.value,10) || 30;
-  // Never let session exceed safety cap
-  sessionLenMin = Math.min(sessionLenMin, s.maxMinutes);
+  sessionLenMin = Math.min(parseInt(lenSel.value,10) || 30, s.maxMinutes);
   startTs=Date.now();
   if(timerId) clearInterval(timerId);
   timerId=setInterval(tick,1000); tick();
@@ -488,7 +458,6 @@ function stopSession(completed=false){
   stopIso(false);
   if(timerId){ clearInterval(timerId); timerId=null; }
   const elapsedMin = startTs ? Math.round((Date.now()-startTs)/60000) : 0;
-  // budget accounting for activating bands
   if(startTs){
     const pulse = +pulseHz.value;
     if(pulse>=14 && elapsedMin>0){ addToBudget(elapsedMin); }
@@ -496,7 +465,6 @@ function stopSession(completed=false){
   startTs=0; tick();
   releaseWake();
 
-  // Auto normalize (soft) for 2 minutes
   if(completed && autoNormalize.checked){
     applyPreset('normalize_soft');
     lenSel.value = '2';
@@ -505,7 +473,6 @@ function stopSession(completed=false){
 }
 
 function alertSafe(msg){
-  // minimal inline warning instead of window.alert for sandboxed iframes
   const warn = document.createElement('div');
   warn.className='mt-2 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded p-2';
   warn.textContent = msg;
@@ -603,7 +570,7 @@ async function requestWake(){
     }else{
       wakeState.textContent='Awake: n/a';
     }
-  }catch{ /* silently ignore */ }
+  }catch{}
 }
 async function releaseWake(){
   try{ if(wakeLock){ await wakeLock.release(); wakeLock=null; wakeState.textContent='Awake: off'; } }catch{}
