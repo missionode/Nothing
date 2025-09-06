@@ -20,6 +20,12 @@
   .chip{padding:.3rem .6rem;border-radius:9999px;font-size:.75rem;border:1px solid #e2e8f0;cursor:pointer}
   .chip[data-active="1"]{background:#1e293b;color:#fff;border-color:#1e293b}
   .hint{font-size:.72rem;color:#64748B}
+  .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+  .switch{width:2.5rem;height:1.3rem;border-radius:9999px;background:#e5e7eb;position:relative}
+  .switch>i{position:absolute;left:.15rem;top:.15rem;width:1rem;height:1rem;border-radius:9999px;background:#fff;transition:left .18s ease}
+  .switch[data-on="1"]{background:#5B8DEF}
+  .switch[data-on="1"]>i{left:1.35rem}
+  input[type="number"]{border:1px solid #e5e7eb;border-radius:.6rem;padding:.35rem .5rem;width:5.5rem}
 </style>
 </head>
 <body class="bg-gradient-to-b from-slate-50 to-slate-100 min-h-screen p-5 text-slate-900">
@@ -48,6 +54,7 @@
       <button class="chip" data-chip data-cat="work">Work/Study</button>
       <button class="chip" data-chip data-cat="social">Social/Rec</button>
       <button class="chip" data-chip data-cat="active">Active/Athletic</button>
+      <button class="chip" data-chip data-cat="drive">Drive</button>
     </div>
   </section>
 
@@ -61,6 +68,12 @@
             <label class="label block">Playlist / Mode</label>
             <select id="presetSel" class="w-full mt-1 rounded-xl border border-gray-300 px-3 py-2"></select>
             <div class="mt-2 text-xs text-slate-600" id="presetTags"></div>
+
+            <!-- Drive consent appears only for Drive presets -->
+            <label id="driveConsentWrap" class="mt-2 hidden row text-[12px] text-red-700">
+              <input id="driveConsent" type="checkbox" class="rounded">
+              <span><strong>Drive Mode:</strong> I confirm I’m <u>not</u> operating a vehicle/heavy machinery.</span>
+            </label>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
@@ -119,6 +132,23 @@
             </div>
           </div>
 
+          <!-- Intermittent Mode -->
+          <div class="p-3 rounded-lg bg-slate-50 border border-gray-200 space-y-2">
+            <div class="row">
+              <strong class="text-sm">Intermittent Mode</strong>
+              <span id="interSwitch" class="switch" role="switch" tabindex="0" aria-checked="false"><i></i></span>
+              <span class="label">Cycle pulse On/Off automatically</span>
+            </div>
+            <div class="row">
+              <span class="label">On (s)</span>
+              <input id="interOnSec" type="number" min="20" max="600" step="5" value="120">
+              <span class="label">Off (s)</span>
+              <input id="interOffSec" type="number" min="10" max="300" step="5" value="30">
+              <span id="interState" class="badge">Intermittent: off</span>
+            </div>
+            <div class="hint">Safe ranges enforced (On: 20–600s, Off: 10–300s). Smooth ramps avoid clicks.</div>
+          </div>
+
           <div class="p-3 rounded-lg bg-slate-50 border border-gray-200">
             <div class="flex items-center gap-2">
               <strong class="text-sm">Safety Advisor</strong>
@@ -152,43 +182,47 @@
 const PRESETS = {
   playlists: [
     /* Calm */
-    { id:'mantra',   label:'Mantra / Meditation', cat:'calm',     pulseHz: 2.0,  carrierHz:200,   waveGain:0.40 },
-    { id:'creative', label:'Creativity / Dream',  cat:'calm',     pulseHz: 6.0,  carrierHz:210,   waveGain:0.35 },
-    { id:'calm',     label:'Calm Focus / Reading',cat:'calm',     pulseHz:10.0,  carrierHz:220,   waveGain:0.30 },
+    { id:'mantra',   label:'Mantra / Meditation',    cat:'calm',     pulseHz: 2.0,  carrierHz:200,   waveGain:0.40 },
+    { id:'creative', label:'Creativity / Dream',     cat:'calm',     pulseHz: 6.0,  carrierHz:210,   waveGain:0.35 },
+    { id:'calm',     label:'Calm Focus / Reading',   cat:'calm',     pulseHz:10.0,  carrierHz:220,   waveGain:0.30 },
 
     /* Sacred */
-    { id:'om',       label:'Om (ॐ) Cosmic Tone',  cat:'sacred',   pulseHz: 7.83, carrierHz:136.1, waveGain:0.35 },
-    { id:'gayatri',  label:'Gayatri Mantra Mode', cat:'sacred',   pulseHz: 7.0,  carrierHz:110.0, waveGain:0.30 },
+    { id:'om',       label:'Om (ॐ) Cosmic Tone',     cat:'sacred',   pulseHz: 7.83, carrierHz:136.1, waveGain:0.35 },
+    { id:'gayatri',  label:'Gayatri Mantra Mode',    cat:'sacred',   pulseHz: 7.0,  carrierHz:110.0, waveGain:0.30 },
 
     /* Wellness */
-    { id:'healing',  label:'Healing',             cat:'wellness', pulseHz: 5.5,  carrierHz:528.0, waveGain:0.36 },
-    { id:'rejuv',    label:'Rejuvenation',        cat:'wellness', pulseHz: 9.0,  carrierHz:285.0, waveGain:0.34 },
+    { id:'healing',  label:'Healing',                cat:'wellness', pulseHz: 5.5,  carrierHz:528.0, waveGain:0.36 },
+    { id:'rejuv',    label:'Rejuvenation',           cat:'wellness', pulseHz: 9.0,  carrierHz:285.0, waveGain:0.34 },
 
     /* Work/Study */
-    { id:'study',    label:'Study / Deep Work',   cat:'work',     pulseHz:15.0,  carrierHz:220,   waveGain:0.30 },
-    { id:'learn',    label:'Learning / Memory',   cat:'work',     pulseHz:40.0,  carrierHz:260,   waveGain:0.25 },
-    { id:'laser_focus',  label:'Laser Focus',     cat:'work',     pulseHz:16.0,  carrierHz:230,   waveGain:0.30 },
-    { id:'pomodoro',     label:'Pomodoro Work',   cat:'work',     pulseHz:13.0,  carrierHz:230,   waveGain:0.30 },
+    { id:'study',    label:'Study / Deep Work',      cat:'work',     pulseHz:15.0,  carrierHz:220,   waveGain:0.30 },
+    { id:'learn',    label:'Learning / Memory',      cat:'work',     pulseHz:40.0,  carrierHz:260,   waveGain:0.25 },
+    { id:'laser_focus',  label:'Laser Focus',        cat:'work',     pulseHz:16.0,  carrierHz:230,   waveGain:0.30 },
+    { id:'pomodoro',     label:'Pomodoro Work',      cat:'work',     pulseHz:13.0,  carrierHz:230,   waveGain:0.30 },
 
     /* Social/Rec */
-    { id:'sensual',  label:'Sensual / Intimate',  cat:'social',   pulseHz: 9.0,  carrierHz:220,   waveGain:0.35 },
-    { id:'dance',    label:'Dance / Groove',      cat:'social',   pulseHz:14.0,  carrierHz:240,   waveGain:0.25 },
-    { id:'party',    label:'Party / Energy',      cat:'social',   pulseHz:18.0,  carrierHz:250,   waveGain:0.22 },
-    { id:'cannabis', label:'Recreational / Cannabis', cat:'social', pulseHz: 8.0, carrierHz:432.0, waveGain:0.38 },
+    { id:'sensual',  label:'Sensual / Intimate',     cat:'social',   pulseHz: 9.0,  carrierHz:220,   waveGain:0.35 },
+    { id:'dance',    label:'Dance / Groove',         cat:'social',   pulseHz:14.0,  carrierHz:240,   waveGain:0.25 },
+    { id:'party',    label:'Party / Energy',         cat:'social',   pulseHz:18.0,  carrierHz:250,   waveGain:0.22 },
+    { id:'cannabis', label:'Recreational / Cannabis',cat:'social',   pulseHz: 8.0,  carrierHz:432.0, waveGain:0.38 },
 
-    /* Active/Athletic (new) */
+    /* Active/Athletic */
     { id:'focuspeak', label:'Peak Focus (Athletes)',  cat:'active', pulseHz:14.0, carrierHz:240, waveGain:0.28 },
     { id:'stamina',   label:'Endurance / Workers',    cat:'active', pulseHz:16.0, carrierHz:250, waveGain:0.30 },
     { id:'power',     label:'Strength / Power',       cat:'active', pulseHz:18.0, carrierHz:260, waveGain:0.32 },
     { id:'reaction',  label:'Reflex / Gamers',        cat:'active', pulseHz:20.0, carrierHz:270, waveGain:0.30 },
     { id:'hyper',     label:'Hyper-Active Boost',     cat:'active', pulseHz:25.0, carrierHz:280, waveGain:0.30 },
 
+    /* Drive (new) — requires consent, stricter caps */
+    { id:'drive_commute', label:'Drive Mode — Easy Alert', cat:'drive', pulseHz:12.0, carrierHz:230, waveGain:0.26 },
+    { id:'drive_energy',  label:'Drive Mode — High Alert', cat:'drive', pulseHz:16.0, carrierHz:240, waveGain:0.28 },
+
     /* Normalizers / Grounding */
-    { id:'normalize_soft', label:'Normalize (soft → ground)', cat:'calm', pulseHz:8.0, carrierHz:220, waveGain:0.22 },
+    { id:'normalize_soft', label:'Normalize (soft → ground)', cat:'calm', pulseHz:8.0, carrierHz:220,   waveGain:0.22 },
     { id:'ground',         label:'Ground (Schumann ~7.83Hz)', cat:'calm', pulseHz:7.83, carrierHz:136.1, waveGain:0.22 },
-    { id:'wake_up',  label:'Wake Up',               cat:'social',   pulseHz:20.0, carrierHz:240, waveGain:0.26 },
-    { id:'motivate', label:'Motivation Boost',      cat:'social',   pulseHz:22.0, carrierHz:250, waveGain:0.26 },
-    { id:'problem_solve', label:'Problem Solving',  cat:'work',     pulseHz:32.0, carrierHz:260, waveGain:0.24 }
+    { id:'wake_up',        label:'Wake Up',                    cat:'social',   pulseHz:20.0, carrierHz:240, waveGain:0.26 },
+    { id:'motivate',       label:'Motivation Boost',           cat:'social',   pulseHz:22.0, carrierHz:250, waveGain:0.26 },
+    { id:'problem_solve',  label:'Problem Solving',            cat:'work',     pulseHz:32.0, carrierHz:260, waveGain:0.24 }
   ],
   isochronic: { depth:0.85, attackMs:10, releaseMs:12 }
 };
@@ -202,21 +236,29 @@ function computeSafety(pulse, cat){
     risk='high'; maxMinutes=10; minBreakMin=45; maxDepth=0.65; maxWaveGain=0.30;
     notes.push('Very activating band—use short sessions only.');
   }else if(pulse >= 20){
-    risk='high'; maxMinutes=15; minBreakMin=30; maxDepth=0.7; maxWaveGain=0.32;
+    risk='high'; maxMinutes=15; minBreakMin=30; maxDepth=0.70; maxWaveGain=0.32;
     notes.push('Upper beta/low gamma—keep volume & depth modest.');
   }else if(pulse >= 14){
     risk='medium'; maxMinutes=25; minBreakMin=20; maxDepth=0.75; maxWaveGain=0.34;
     notes.push('Stimulating band—schedule short breaks.');
   }else{
-    risk='low'; maxMinutes=45; minBreakMin=10; maxDepth=0.85; maxWaveGain=0.4;
+    risk='low'; maxMinutes=45; minBreakMin=10; maxDepth=0.85; maxWaveGain=0.40;
     notes.push('Gentle band—still keep volumes moderate.');
   }
   if(cat==='active'){
     maxMinutes = Math.min(maxMinutes, pulse>=20 ? 15 : 25);
     minBreakMin = Math.max(minBreakMin, pulse>=20 ? 45 : 20);
-    maxDepth = Math.min(maxDepth, 0.7);
+    maxDepth = Math.min(maxDepth, 0.70);
     maxWaveGain = Math.min(maxWaveGain, 0.32);
     notes.push('Athletic/active mode: stricter guardrails applied.');
+  }
+  if(cat==='drive'){
+    risk = (pulse>=16?'high':'medium');
+    maxMinutes = Math.min(maxMinutes, 20);
+    minBreakMin = Math.max(minBreakMin, 30);
+    maxDepth = Math.min(maxDepth, 0.60);
+    maxWaveGain = Math.min(maxWaveGain, 0.28);
+    notes.push('Drive Mode: requires consent; reduced depth/volume; short sessions only.');
   }
   maxDepth = Math.max(0.5, Math.min(0.9, maxDepth));
   maxWaveGain = Math.max(0.18, Math.min(0.45, maxWaveGain));
@@ -244,10 +286,14 @@ const enableMicBtn=$('#enableMic'), micState=$('#micState'), snapState=$('#snapS
 const riskBadge=$('#riskBadge'), budgetBadge=$('#budgetBadge'), safetyNotes=$('#safetyNotes');
 const panicCalm=$('#panicCalm'), autoNormalize=$('#autoNormalize');
 const chips=[...document.querySelectorAll('[data-chip]')];
+const driveConsentWrap=$('#driveConsentWrap'), driveConsent=$('#driveConsent');
 
-/* --------- FIX: declare currentSafety BEFORE any use --------- */
+/* Intermittent controls */
+const interSwitch=$('#interSwitch'), interOnSec=$('#interOnSec'), interOffSec=$('#interOffSec'), interState=$('#interState');
+let interEnabled=false, interTimer=null, interPhase='on';
+
+/* --------- safety state (declare early) --------- */
 let currentSafety = {risk:'low', maxMinutes:30, minBreakMin:10, maxDepth:0.8, maxWaveGain:0.35, notes:[]};
-/* ------------------------------------------------------------- */
 
 /* ------------- UI: build preset list + filters ------------ */
 function renderPresets(filter='all'){
@@ -270,6 +316,8 @@ chips.forEach(ch=>{
 renderPresets('all');
 
 /* ----------------- Audio engine state ----------------- */
+var ctx = null, bus = null, gainOut = null, carrierOsc = null, lfoOsc = null, env = null;
+var running = false, timerId = null, startTs = 0, sessionLenMin = 0;
 
 function safetySummaryToUI(s){
   riskBadge.textContent = `Risk: ${s.risk}`;
@@ -288,14 +336,11 @@ function safetySummaryToUI(s){
   ].join('');
 }
 
-var ctx = null, bus = null, gainOut = null, carrierOsc = null, lfoOsc = null, env = null;
-var running = false, timerId = null, startTs = 0, sessionLenMin = 0;
-
 /* Apply preset and guardrails */
 function applyPreset(id){
   const p = PRESETS.playlists.find(x=>x.id===id) || PRESETS.playlists[0];
   const s = computeSafety(p.pulseHz, p.cat);
-  currentSafety = s;                           /* safe to assign now */
+  currentSafety = s;
 
   pulseHz.value   = p.pulseHz;  pulseHzV.textContent = Number(p.pulseHz).toFixed(1);
   carrierHz.value = p.carrierHz; carrierHzV.textContent = String(p.carrierHz|0);
@@ -305,6 +350,8 @@ function applyPreset(id){
   waveGainV.textContent = Number(waveGain.value).toFixed(2);
 
   presetTags.innerHTML = `<span class="badge">Category: ${p.cat}</span>`;
+  driveConsentWrap.classList.toggle('hidden', p.cat!=='drive');
+  driveConsent.checked = false; // reset on change
   safetySummaryToUI(s);
 
   if (ctx && running) rebuildIso();
@@ -314,7 +361,6 @@ presetSel.addEventListener('change', ()=>applyPreset(presetSel.value));
 /* Live mirrors with caps */
 [pulseHz, carrierHz, depth, waveGain].forEach(el=>{
   el.addEventListener('input', ()=>{
-    // Guard against early calls before currentSafety exists
     const s = currentSafety || {maxDepth:0.9,maxWaveGain:0.45};
     if(el===depth && +depth.value > s.maxDepth) depth.value = s.maxDepth;
     if(el===waveGain && +waveGain.value > s.maxWaveGain) waveGain.value = s.maxWaveGain;
@@ -347,7 +393,7 @@ function rebuildIso(){
 
   carrierOsc=ctx.createOscillator(); carrierOsc.type='sine'; carrierOsc.frequency.value=+carrierHz.value;
 
-  const lfoOsc=ctx.createOscillator(); lfoOsc.type='sine';
+  const _lfo=ctx.createOscillator(); _lfo.type='sine';
   const rectGain=ctx.createGain(); rectGain.gain.value=0.5;
   const plusHalf=ctx.createConstantSource(); plusHalf.offset.value=0.5;
 
@@ -358,7 +404,7 @@ function rebuildIso(){
   const envSum=ctx.createGain();
   env=ctx.createGain(); env.gain.value=0;
 
-  lfoOsc.connect(rectGain).connect(rectSum);
+  _lfo.connect(rectGain).connect(rectSum);
   plusHalf.connect(rectSum);
   rectSum.connect(depthGain).connect(envSum);
   base.connect(envSum);
@@ -367,8 +413,8 @@ function rebuildIso(){
   carrierOsc.connect(env).connect(bus);
 
   const now=ctx.currentTime;
-  lfoOsc.frequency.setValueAtTime(+pulseHz.value, now);
-  lfoOsc.start(now); plusHalf.start(now); base.start(now); carrierOsc.start(now);
+  _lfo.frequency.setValueAtTime(+pulseHz.value, now);
+  _lfo.start(now); plusHalf.start(now); base.start(now); carrierOsc.start(now);
 
   const a=PRESETS.isochronic.attackMs/1000;
   env.gain.setTargetAtTime(env.gain.value, now, 0.001);
@@ -377,22 +423,71 @@ function rebuildIso(){
   gainOut.gain.setValueAtTime(+waveGain.value, now);
   running=true;
   statusEl.textContent=`Pulse ${(+pulseHz.value).toFixed(1)} Hz • Carrier ${(+carrierHz.value|0)} Hz`;
+
+  // If intermittent is enabled, (re)start its schedule
+  if(interEnabled) startIntermittentLoop(true);
 }
 
 function stopIso(hard=true){
   if(!ctx || !running) return;
   const now=ctx.currentTime, r=PRESETS.isochronic.releaseMs/1000;
   try{
-    if(hard){ carrierOsc.stop(); /* lfo + sources stop via GC after disconnect */ }
+    if(hard){ carrierOsc && carrierOsc.stop(); }
     else{
-      env.gain.setTargetAtTime(env.gain.value, now, 0.001);
-      env.gain.setTargetAtTime(0, now, r);
-      setTimeout(()=>{ try{carrierOsc.stop();}catch{} }, PRESETS.isochronic.releaseMs+40);
+      if(env){ env.gain.setTargetAtTime(env.gain.value, now, 0.001);
+               env.gain.setTargetAtTime(0, now, r); }
+      setTimeout(()=>{ try{carrierOsc && carrierOsc.stop();}catch{} }, PRESETS.isochronic.releaseMs+40);
     }
   }catch{}
-  try{carrierOsc.disconnect(); env.disconnect();}catch{}
+  try{ carrierOsc && carrierOsc.disconnect(); env && env.disconnect(); }catch{}
   running=false; statusEl.textContent='Idle';
 }
+
+/* Smooth env set (ms) */
+function setEnvLevel(level=1, ms=120){
+  if(!ctx || !env) return;
+  const t=ctx.currentTime;
+  env.gain.cancelScheduledValues(t);
+  env.gain.setTargetAtTime(env.gain.value, t, 0.001);
+  env.gain.linearRampToValueAtTime(level, t + Math.max(0.02, ms/1000));
+}
+
+/* Intermittent loop */
+function clampIntervals(){
+  const on = Math.min(600, Math.max(20, parseInt(interOnSec.value,10) || 120));
+  const off= Math.min(300, Math.max(10, parseInt(interOffSec.value,10) || 30));
+  interOnSec.value = on; interOffSec.value = off;
+  return {onMs: on*1000, offMs: off*1000};
+}
+function startIntermittentLoop(resetPhase=false){
+  clearTimeout(interTimer);
+  if(resetPhase) interPhase='on';
+  const {onMs, offMs} = clampIntervals();
+  if(!running) return;
+
+  if(interPhase==='on'){
+    setEnvLevel(1, 180);
+    interState.textContent='Intermittent: ON';
+    interTimer = setTimeout(()=>{ interPhase='off'; startIntermittentLoop(false); }, onMs);
+  }else{
+    setEnvLevel(0, 220);
+    interState.textContent='Intermittent: off';
+    interTimer = setTimeout(()=>{ interPhase='on'; startIntermittentLoop(false); }, offMs);
+  }
+}
+function stopIntermittentLoop(){
+  clearTimeout(interTimer);
+  interState.textContent='Intermittent: off';
+  if(running) setEnvLevel(1,150); // ensure audible when leaving intermittent
+}
+interSwitch.addEventListener('click', ()=>{
+  interEnabled = !interEnabled;
+  interSwitch.dataset.on = interEnabled ? '1':'0';
+  interSwitch.setAttribute('aria-checked', interEnabled?'true':'false');
+  if(interEnabled && running) startIntermittentLoop(true);
+  if(!interEnabled) stopIntermittentLoop();
+});
+[interOnSec, interOffSec].forEach(i=> i.addEventListener('change', ()=> clampIntervals()));
 
 /* Beeps */
 function playNotify(kind){
@@ -400,7 +495,7 @@ function playNotify(kind){
   if(ctx.state==='suspended'){ ctx.resume().catch(()=>{}); }
   const now=ctx.currentTime;
   function beep(freq, tOffset, dur=0.12, gain=0.12){
-    const o=ctx.createOscillator(); const g=ctx.createGain();
+    const o=ctx.createOscillator(), g=ctx.createGain();
     o.type='sine'; o.frequency.setValueAtTime(freq, now+tOffset);
     g.gain.setValueAtTime(0, now+tOffset);
     g.gain.linearRampToValueAtTime(gain, now+tOffset+0.02);
@@ -427,6 +522,12 @@ function startSession(){
   const s = computeSafety(+pulseHz.value, p.cat);
   currentSafety=s; safetySummaryToUI(s);
 
+  // Drive consent required
+  if(p.cat==='drive' && !driveConsent.checked){
+    alertSafe('Drive Mode requires confirmation that you are NOT operating a vehicle or machinery.');
+    return;
+  }
+
   depth.value = Math.min(+depth.value, s.maxDepth); depthV.textContent=Number(depth.value).toFixed(2);
   waveGain.value = Math.min(+waveGain.value, s.maxWaveGain); waveGainV.textContent=Number(waveGain.value).toFixed(2);
 
@@ -451,10 +552,14 @@ function startSession(){
   pushHist();
   requestWake();
   playNotify('start');
+
+  // Start intermittent if toggled
+  if(interEnabled) startIntermittentLoop(true);
 }
 
 function stopSession(completed=false){
   playNotify('stop');
+  stopIntermittentLoop();
   stopIso(false);
   if(timerId){ clearInterval(timerId); timerId=null; }
   const elapsedMin = startTs ? Math.round((Date.now()-startTs)/60000) : 0;
